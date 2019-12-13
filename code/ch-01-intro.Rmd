@@ -1,0 +1,38 @@
+# Chapter 1  - Intro to ML
+
+## SUpervised learing
+
+Builidng predictive models where
+
+* Y - target variable, outcome measurement, dependent variable, response
+* X - predictor variable, independent var, attribute, feature
+
+In supervised learing the target variable provides the supervisory role, indicating to the *learner* the task it needs to learn. For a set of data the the algorithm optimises a function to find a combination of features or predictors that results in a prediction that is closest to the actual target output as posssible. 
+
+Disctinguish classification and regression 
+
+### Regression 
+
+If the target outcome is a numeric value i.e. falls on a continuum, then it is a regression problem. 
+
+### Classification
+
+If the target outcome is the categorical outcome, this is a classification problem. Although we usually don't predict the outcome, but rather the probability of that outcome. And the class with the highest probablitiy is then the predicted class. 
+
+Some ML algs can only be applied to regression and some to classificaiton problems, but a lot can be applied to both. 
+
+## Unsupervised learning
+
+
+There is no target variable, we want to identify groups in the dataset. 
+
+### Clustering
+
+The groups here are defined rowwise. We want to identify groups defined by similar variable values that form homogenous groups
+
+### Dimension reduction
+
+Here you want to reduce the number of variables. E.g. in regression you can have a problem if your variables are highly correlated. A dimension reduction alg can reduce the colinearity of the variables (and their number). This can then be the inputs into a supervised training model downstream. 
+
+Unsupervised learning is usually part of exploratory or descriptive data analysis. There is a stronly subjective element to this type of ML, since there is nothing to compare to/test the resutls. 
+
