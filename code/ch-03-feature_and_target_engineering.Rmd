@@ -1,0 +1,167 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Feature and Target Engineering
+
+```{r, global_options, include=FALSE}
+library(knitr)
+opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+Preprocessing your data before modelling can significantly affect the model performance.
+
+## Prerequisites
+```{r prereqs, inlcude = FALSE}
+# Helper packages
+library(dplyr)    # for data manipulation
+library(ggplot2)  # for awesome graphics
+library(visdat)   # for additional visualizations
+library(rsample)  # for splitting data
+
+# Feature engineering packages
+library(caret)    # for various ML tasks
+library(recipes)  # for feature engineering tasks
+
+# load ames housing data
+ames <- AmesHousing::make_ames()
+
+# Stratified sampling with the rsample package
+set.seed(123)
+split <- initial_split(ames, prop = 0.7, 
+                       strata = "Sale_Price")
+ames_train  <- training(split)
+ames_test   <- testing(split)
+```
+
+## Target engineering
+
+Especially with parametric models, you might want to transform your target variable e.g. to make it normal with a log-transformation if the model's assumptions are that the errors are normally distributed (and therefore the target as well). 
+
+Additionally if you log-transform the response, this means that errors on high and low vales are treated equally -- this is equivalent to using RMSLE loss funciton instead of RMSE.
+
+**Option 1**: log-transform the outcome. Either directly in the dataset. Alternatively, think of preprocessing as creating a blueprint that will be applied later. Using the `recipe` package:
+
+```{r}
+# log transformation
+ames_recipe <- recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_log(all_outcomes(), offset = 1)
+
+ames_recipe
+```
+You can add an `offset` in the `step_log()` function to add +1 to all values if you have zeros or small negative values you are logging. If the values are more negative, then you can use the Yeo-Johnson transformation described below. 
+
+**Option 2**: use a *Box-Cox* transformation. It's more powerful than just a log (which is a special case of it anyway). The transformation uses an exponent *lambda* ($\lambda$), and the optimal value is estimated from the training data, to produce a transformation closest to normal. You want to make sure you use the same lanbda in the training and test sets, `recipes` automates this for you though. 
+
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Distribution of target variable in train set untransformed, log transfrormed and box cox"}
+x.bc <- forecast::BoxCox(ames_train$Sale_Price, lambda = "auto")
+x.log <- log(ames_train$Sale_Price)
+par(mfrow = c(1,3))
+plot(density(ames_train$Sale_Price, col = "blue", main = "untransformed"))
+plot(density(x.bc), main = "log transformed")
+plot(density(x.log), col = "red", main = "boxcox")
+
+```
+
+Of course if you transform your response, you will want to undo that when you're interpreting your results, don't forget that. 
+
+!! code error: `lambda` instead of `lambda = "auto"` in the Box Cox call.!!
+
+## Dealing with missingness
+
+Distinguish between *informative missingness* and *random missingness*. The reason behind the missing data will drive how we treat them. For example we might give informative missing values their own category e.g. "none" and let them be a predictor in their own right. Random missing values can either be deleted or imputed. 
+
+Most ML algs cannot handle missing values, so you need to deal with them beforehand. Some models, mainly tree-based ones, have procedures built in to handle them though. But if you are comparing multiple models you will want to deal with NAs before, so you can compare the models fairly based on the same data quality assumptions. 
+
+### Visualising missing values
+
+The raw, uncleaned ames housing dataset actually has almost 14,000 missing values. 
+
+```{r}
+sum(is.na(AmesHousing::ames_raw))
+```
+
+Visualising the distribution of missing values is the first step to figuring out how to deal with them. We can use base graphics `heatmap()` to do this. 
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Distribution of missing values in raw Ames data"}
+par(mfrow  = c(1,1))
+par(mar = c(1,1,1,1))
+image(matrix(as.numeric(is.na(AmesHousing::ames_raw)), nrow = nrow(AmesHousing::ames_raw)))
+
+```
+
+Or ggplot
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Distribution of missing values in raw Ames data"}
+AmesHousing::ames_raw %>%
+  is.na() %>%
+  reshape2::melt() %>%
+  ggplot(aes(Var2, Var1, fill=value)) + 
+    geom_raster() + 
+    coord_flip() +
+    scale_y_continuous(NULL, expand = c(0, 0)) +
+    scale_fill_grey(name = "", 
+                    labels = c("Present", 
+                               "Missing")) +
+    xlab("Observation") +
+    theme(axis.text.y  = element_text(size = 4))
+```
+
+Looking more closely we can see that whenever the `Garage_type` is NA, the `Garage_area` and other associated variables are 0. 
+
+```{r}
+raw_ames <- AmesHousing::ames_raw
+raw_ames %>% 
+  filter(is.na(`Garage Type` ) )%>% 
+  select(`Garage Type`,`Garage Area`, `Garage Cars`) %>% 
+  head()
+
+```
+This could mean that the missingness is informative and means there is no garage, not that the data isn't available, so we might want to reclassify those NAs as "None" or sth. 
+
+Another way to visualise the missingness is using the `vis_mis`  from `visdata`. Using `cluster = TRUE` groups the observations with missing data together 
+
+```{r, ig.height = 3, echo = FALSE, fig.cap = "Distribution of missing values in raw Ames data"}
+vis_miss(AmesHousing::ames_raw, cluster = TRUE)
+```
+
+### Imputation 
+
+This is a *feature engineering* step, one that should be one of the first you undertake, because it affects everything downstream.
+
+#### Estimated statistic
+
+* an elementary approach is to calculate a mean, or mode or median, and use that to replace the NAs. But htis ignores the other attributes of an observation we are imputing
+
+```{r}
+# add a simple median imputation to the recipe
+ames_recipe %>%
+  step_medianimpute(Gr_Liv_Area)
+```
+
+* an alternative is to used grouped statistics to capture the expected values for smaller groups. But this becomes unfeasible with large datasets. (why?)
+
+Before we get to the more efficient approaches, note that model based imputation needs to be performed **within the resampling process**, which means repeatedly, so be careful about how much of this you want to do. 
+
+#### K-nearest neighbours imputation
+
+Identifies missing observaitons, finds most similar observations based on other attributes and uses these neighbours to assign a value. 
+
+KNN imputation treats the missing observation as the targeted response and predicts it based on the neighbours features. 
+
+If all feaures are quantitative, then standard Euclidean distance is usually used. And if there is a mix, then *Gower's distance* is usually used. 
+
+Of course $k$ is also a tunable parameter, the default used by `step_knnimpute()` is 5, but can be changed using the `neighbours` argument. 
+
+```{r}
+ames_recipe %>%
+  step_knnimpute(all_predictors(), neighbors = 6)
+```
+
+NB: in the recipes looks like you can only do one imputation recipe, it overrides the other one!
+
+#### Tree-based
+
+
