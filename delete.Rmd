@@ -1,0 +1,6 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+$MSE=\frac{1}{n} \sum{n_i}=1(y_i-\hat y_i)^2$

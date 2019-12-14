@@ -163,5 +163,265 @@ Many ML algorithms (e.g. most h2o ones) have internal class weighting schemes to
 
 ## Creating models in R
 
+There are dozens of implementations of ML algs in R, they can vary by efficiency, parameter tuning options etc. This gives you a lot of options, but there are also inconsistenices in how you define the formulas or how the outputs are supplied (but not the results i hope?).
+
+### Many formula interfaces
+
+Traditional R style formula interfaces
+
+```{r eval = FALSE}
+# Sale price as function of neighborhood and year sold
+Sale_Price ~ Neighborhood + Year_Sold, 
+
+# Variables + interactions
+Sale_Price ~ Neighborhood + Year_Sold + Neighborhood:Year_Sold
+
+# Shorthand for all predictors
+Sale_Price ~ .
+
+# Inline functions / transformations (ns = natural spline)
+log10(Sale_Price) ~ ns(Longitude, df = 3) + ns(Latitude, df = 3)
+```
+
+But there are disadvantages to this interface:
+* You cannot nest inline functions like pca()
+* the matrix calculations happen at once and cannot be recycled
+* can be inefficient for wide datasets
+* can be inelegant for large multivariate models
+* is inconsistent, since not all modelling functions have a formula mehtod
+
+Some modelling functions have a non-formula interface:
+
+```{r, eval = FALSE}
+# Use separate inputs for X and Y
+features <- c("Year_Sold", "Longitude", "Latitude")
+model_fn(x = ames[, features], y = ames$Sale_Price)
+```
+
+This can be more efficient, but also inconvenient if you have transformations of features, or they are factors, interactions etc..
+
+Not sure what the difference is here really, but `h2o` uses a *variable name specification* like so:
+
+```{r, eval = FALSE}
+model_fn(
+  x = c("Year_Sold", "Longitude", "Latitude"),
+  y = "Sale_Price",
+  data = ames.h2o)
+```
+
+### Many engines
+
+*Meta engines* help provide consistency. There are many packages that can run the same model (different implementation). A meta engive kind of funnels it through it's own engine, as an aggregator to get consistent outputs. 
+
+For example the following all produces the same model, although the outputs are not structured the same way:
+
+```{r, eval = FALSE}
+lm_lm    <- lm(Sale_Price ~ ., data = ames)
+lm_glm   <- glm(Sale_Price ~ ., data = ames, 
+                family = gaussian)
+lm_caret <- train(Sale_Price ~ ., data = ames, 
+                  method = "lm")
+```
+
+`lm` and `glm` are two different engines. `caret` allows you to use almost anything as the `mehtod`. Using engines directly is more flexible, but you need to learn the specifics of each implementationand syntax. Meta engines make it easier to extract outputs using consistent syntax. `caret` is a popular meta engine, `parsnip` is a new one as well. 
+
+I think `parsnip` is simply a `tidyverse` interface for `caret`? And yes, `parsnip` is part of `tidymodels`, which includes `rsample` as well, and is a tidy interface, written by the same guy, Max Kuhn, of `caret` fame. See [here](https://konradsemsch.netlify.com/2019/08/caret-vs-tidymodels-comparing-the-old-and-new/) for a great write up and comparison in practice. 
+
+## Resampling methods
+
+Assessing model performance: where? Not on the training set obviously. And apparently assessing it on the test data is not a great idea, since it can be biased and lead to the selection of a model that does not have great generalizability. 
+
+An alternative is to use a **validation set**, which is a third part of the data, also sometimes called the hold-out set. Train on training, estimate performace on the validation set and then test the chosen model on the test set. Of course if you don't have a lot of data this is also problematic. 
+
+A third option is **resampling methods** which allow us to repeatedly fit a mode on parts of the training set. The most popular are *k-fold cross* and *bootstrapping*.
+
+### k-fold cross validation
+
+You split your *training* set into $k$ folds. Then train the model on $k-1$ folds and test it on the $k^{th}$ fold to get the error. Repeat $k$ times and take the average. You still have the testing set left, on which to test the final model. 
+
+Setting $k = 10$ is pretty good, performs close to LOOCV - leave one out CV, which is the most extreme k-fold version, where $k=n$. 
+
+Instead of increasing $k$ it's better to repeat k-fold CV many times, e.g. $k$ times. Also if you repeat it, you not only get better accuracy, but also an estimate of its variability. 
+
+You can often perform CV directly from the ML functions. 
+
+Alternatively you can perform CV externally e.g. with `rsmaple::vfold_cv()`
+
+### Bootstrapping
+
+**Bootstrapping** is random sampling with replacement. A bootstrap sample is the same size as the original dataset, and contains approximately the same distribution as the original.  Because of replacement, there are many duplicates. On average only about 63% of the original ends up in the bootstrapped sample. The others are considerred *out-of-bag* (OOB). 
+
+So you can train the model on the bootstrap and test it on the OOB set, which is often done e.g. in random forest. (why only there?).
+
+Because of duplication there tends to be less variability in bootstrapped error estimates complared to k-fold CV and this can increase its bias. But apparently for datasets > 1000 this doesn't matter much. 
+
+Implementation is easy externally with `rsample::bootstraps()`. But it is typically more of an internal procedure built into many algorithms already.
+
+### Alternatives
+
+There are specific approaches especially for time series data. 
+
+Also the 632 method, aimed at minimising biases experienced by bootstrapping in small datasets. with a great explanation [here](https://stats.stackexchange.com/questions/96739/what-is-the-632-rule-in-bootstrapping). 
+
+## Bias-variance trade-off
+
+Prediciton errors can be decomposed into bias and variance subcomponents. There is often a trade-off between a model's ability to reduce one or the other. 
+
+### Bias
+
+**Bias** is the difference between the expected and prediction and the correct value. So in general (on average), how far are the model's predicitons from the true values. 
+
+If you have high bias, then even the noise introduced by resampling will not change that. It will remain consistent.
+
+**Variance** is the variability of a model prediction for a given data point. Very adaptable models can fit many different patterns, but this leads to overfitting on the training data, which may not generalize to the test data. 
+
+If you have a high variance model then adding noisy resampling is crucial to reduce the risk of overfitting. 
+
+The tradeoff is in complex models with many hyperparameters that need to be tuned. (?)
+
+### Hyperparameter tuning
+
+Hyperparameters control the complexity of the model and the bias-variance tradeoff. Not all models have them (e.g. OLS doesn't), but most have at least one. 
+
+How you set them depends on the data and the problem *but it isn't always possible to set them from the training data alone*.  So how do you decide the optimal values for the parameters? E.g. a k-nearest neighbours model has only one parameter, $k$ which defines how many similar observations are averaged to get the prediciton. If $k$ is small, the models have high variance (but low bias). Increasing $k$ reduces the variance, but increases the bias. So which $k$ is right?
+
+You can fiddle with $k$ and measure how it affects the predictive accuracy  e.g. with k-fold CV. This might be sensible if you have only a few hyperparameters, but what if you have loads? 
+Then you can perform a **grid search**, which is an automated way of searching through the hyperparameter space.  In the k-nearest neightbours example, with only one parameter, you can perform a *full Ccartesian gird search*, because you can try all possibilities within a reasonable range. 
+
+But with more hyperparameters this is too computationally expensive, so you need to adjust the *grid settings* to search more efficiently. You can also perform *random grid searches*, *early stopping*, where you stop searching once the improvement stops being important, *adaptive resampling via futility analysis* etc.
+
+## Model evaluation
+
+Model evaluation used to be performed using some sort of goodness-of-fit test and the analysis of residuals. But apparenlty this can lead to misleading models even if they pass these tests, so nowadays it is more common to use a **loss function** to assess performance. *Loss functions* are metrics that compare the predicted values to the actual value. The output is called the *error* or the *pseudo residual*. 
+
+(I don't get this, how is this different?)
+
+So there are different loss functions, each with a different definition of the predictive accuracy, most obviously these differ for regression and classification problems. Different loss funcitons will emphasise different types of errors, so they can lead to drastically different models being chosen as optimal. So the context of the modelling is very important in determening the chosen metric. Obviously only compare models using the same loss function. 
+
+### Regression model loss functions
+
+**MSE** mean squared error $MSE=\frac{1}{n} \sum^1_{n_i}=1(y_i-\hat y_i)^2$. Average of the squared errors, objective is to minimise. Similar to the error in OLS, but here we divide with $n$ instead of $n-p$ to adjust for bias. SUper popular
+
+**RMSE** root mean squared error: $RMSE=\sqrt{ \sum^1_{n_i}=1(y_i-\hat y_i)^2}$, same as before, but square root of the squared error, this way the error has the same unit as the response variable (not the square). Objective is to minimise.
+
+**Deviance** - mean residual deviance. Like MSE, but only take the absolute difference. This gives all errors equal weight, not more to  bigger errors like MSE  $MAE=\frac{1}{n}\sum^1_{n_i}|y_i-y_i|$. Also minimise.
+
+**RMSLE** root mean squared logarithmic error. If your response has a large range of values, large values will dominate MSE or RMSE. RMSLE minimises this impact so that small values with large errors have just as much impact as large values with large errors.  Minimise.
+
+**$R^2$** Proportion of variance of the response variable that is predictable from the independent variables. But major limitation is comparability: two models from two datasets can have the same RMSE, but if one has a response with a lot less variability, it will also have a smaller $R^2$. So don't use it. objective is to maximise. 
+
+### Classification model loss functions
+
+
+**Missclassification** Percentage of observations classed in the wrong class. Objective to minimise.
+
+**mean per class error** - average error rate for each class. If the classes are balanced, this is the same as missclassification. Otherwise the small class error rates have more weight and large ones less.
+
+**MSE** - works because the preditctions are actually probabilities. Take the difference from 1 to the predicted probability for that class and square it. Large differences get amplified.
+
+**cross entropy** a.k.a. **log loss** or **deviance**. similar to MSE, but incorporates the log of the predicted probability multiplied by the true class. This disproportionally punishes low probability predicitons for the true class. 
+
+**Gini index** commonly used in  tree-based methods, also referred to as **purity**, where a small value means a node contains mainly observations from the same class. 
+
+For classificaiton models we often look at the **confusion matrix** to see the true and false positives/negatives. If we have a binary outcome variable there are a few other metrics we can use:
+
+**Accuracy** (oposite of misclassification): how often is the classifier correct? True positives + true negatives / total.
+
+**Precision**: maximising the true positive vs false positive ratio: TP/(TP+FP). How accurately does the classifyer predict events. 
+
+
+**Sensitivity** a.k.a. **recall**: how accurately does the classifier classify actual events.  TP/(TP+FN). 
+
+**Specificity**: how accurately does the classifier predict non-events: TN/(TN+FP)
+
+**AUC** - area under the curve. A good binary classifier has high precision and high sensitivity: so it's good at predicting an event will occur and that it won't. So it minimises false positives and false negatives. We use an ROC curve (*reciever operating charactheristic*), which plots the false positive rate on x and the false negative rate on y. The diagonal is random guessing, so the more the curve diverges to the top left, the better. The area under the curve needs to be maximised. (Hmm, i'll need a more worked out example)
+
+## Putting the processes together.
+
+### data splitting
+
+Use `caret::initial_split()` to split the training and testing sets, and stratify it by the outcome variable to ensure it is consistently distributed between both. 
+
+```{r}
+# Stratified sampling with the rsample package
+set.seed(123)
+split <- initial_split(ames, prop = 0.7, 
+                       strata = "Sale_Price")
+ames_train  <- training(split)
+ames_test   <- testing(split)
+```
+
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Distribution of target variable in training (black) and testing (red) sets"}
+par(mar = c(4,4,2,0.1)+0.10)
+plot(density(as.vector(ames_train$Sale_Price)), main = "base r", xlab = "Sale_Price")
+lines(density(as.vector(ames_test$Sale_Price)),  col = "red")
+
+```
+
+Next we will use *k-nearest neighbours* to model the price. The `caret::train()` function will allow us to at the same time also 
+
+* resample: using 10-fold crossvalidation repeated 5 times
+* do a grid search for the optimal k from specified ranges
+* train and validate the model using our preferred loss function (RMSE)
+
+```{r, cache = TRUE}
+# Specify resampling strategy
+cv <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 5
+)
+
+# Create grid of hyperparameter values
+# column name is same as tuning parameter name = k
+hyper_grid <- expand.grid(k = seq(2, 10, by = 1))
+
+# Tune a knn model using grid search
+knn_fit <- train(
+  Sale_Price ~ .,  # outcome and independent variables defined with formula
+  data = ames_train, 
+  method = "knn", # n-nearest neighbours
+  trControl = cv, # resampling
+  tuneGrid = hyper_grid, # possible tuning values
+  metric = "RMSE" 
+)
+```
+
+So for each value of k (here from 2 to 10 to shorten the calculation), `train` performs  five repeats of a 10-fold cross validation (i.e. train on 9/10 of the training data and test on the remaining 1/10), calculates the RMSE for each and takes the average of the 50 values for that $k$. Then compares all the $k$s and figures out which is the best i.e. has the smallest RMSE. 
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Plot of tuning parameters and metric for trained model: k and RMSE"}
+knn_fit
+
+ggplot(knn_fit) +
+  theme_bw()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
