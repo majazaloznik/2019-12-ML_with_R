@@ -114,7 +114,7 @@ An alternative is to use *maximum likelihood* estimation (ML) to estimate $\sigm
 
 $$\hat\sigma^2=\frac{1}{n-p} \sum^n_{i=1}(Y_i-\hat Y_i)^2 = \frac{1}{n-p} \sum^n_{i=1}r_i^2$$
 
-Where  $r_i$ is the residual of the $i^{th}$ observation. and $p$ is the number of parameters or coefficients in the model. \hat\sigma^2 is also known as the mean squared error (MSE) and it's square root is the RMSE, and you can get it out of an `lm` object using `sigma()`
+Where  $r_i$ is the residual of the $i^{th}$ observation. and $p$ is the number of parameters or coefficients in the model. $\hat\sigma^2$ is also known as the mean squared error (MSE) and it's square root is the RMSE, and you can get it out of an `lm` object using `sigma()`
 
 ```{r}
 sigma(model1)
@@ -132,7 +132,7 @@ The t-statistic is simply the estimated coefficient divided by the SE, which mea
 
 Under these same assumptions we can also derive the confidence intervals for the $\beta$ coefficients. The formual is:
 
-$$\beta_j \pm t_{1-α/2,n-p} \hat {SE}(\hat \beta_j)$$
+$$\beta_j \pm t_{1-\alpha/2,n-p} \hat {SE}(\hat \beta_j)$$
 
 In R you can construct them using `confitn()`
 
@@ -176,9 +176,11 @@ So holding the year constant, each additional square foot of living area increse
 
 
 ```{r, fig.height = 3, echo = FALSE, fig.cap = "Contour plot of the fitted regression surface"}
+par(mfrow = c(1,2))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
 contour(model2,  Year_Built ~ Gr_Liv_Area ,
         image = TRUE, img.col = rev(heat.colors(40)),
-        main = "contour plot for model 2")
+        main = "contour plot for model 2", cex = 0.7)
 
 model3 <- lm(Sale_Price ~ Gr_Liv_Area + Year_Built + Gr_Liv_Area : Year_Built, data = ames_train)
 contour(model3,  Year_Built ~ Gr_Liv_Area ,
@@ -207,4 +209,71 @@ broom::tidy(model4)
 ```
 
 ## Assessing model accuracy
+
+So now we have three main effects models, a single predictor one, one with two predictors and one with all of the features. WHich is best? Let's use RMSE and cross-validation. (this means resampling from the training dataset and validating on sub-folds, and then taking the average RMSE, instead of just the RMSE of the models as given in the summary()). 
+
+So we can use `caret::train()` to train the model using cross-validation, which is not available directly in the `lm()` funciton
+
+```{r}
+# Train model using 10-fold cross-validation
+set.seed(123)  # for reproducibility
+(cv_model1 <- train(
+  form = Sale_Price ~ Gr_Liv_Area, 
+  data = ames_train, 
+  method = "lm",
+  trControl = trainControl(method = "cv", number = 10)
+))
+```
+So when applied to unseen data, model1 is on average $56,600 off the mark. Let's perform cv on the other two models as well.
+
+
+```{r}
+# Train model using 10-fold cross-validation
+set.seed(123)  # for reproducibility
+(cv_model2 <- train(
+  form = Sale_Price ~ Gr_Liv_Area + Year_Built, 
+  data = ames_train, 
+  method = "lm",
+  trControl = trainControl(method = "cv", number = 10)
+))
+
+set.seed(123)  # for reproducibility
+(cv_model3 <- train(
+  form = Sale_Price ~ ., 
+  data = ames_train, 
+  method = "lm",
+  trControl = trainControl(method = "cv", number = 10)
+))
+
+# collect results from all three resamplings
+summary(resamples(list(
+  model1 = cv_model1, 
+  model2 = cv_model2, 
+  model3 = cv_model3
+)))
+```
+The function `caret::resamples()` allows you to compare the results of the resamplings. (!!! Again, my results are quite different from the book) The two predictor model has an average out of sample  RMSE 46,292, and the all predictor model it's 26,098. Judging only by RMSE, modle 3 is the best.
+
+## Model concerns
+
+There are several strong assumptions required by linear regression, that are often violated. What are they and what can you do about them?
+
+1. **linearity of relationship**: if the relationship isn't linear, there are still transformations that could make it so. See e.g. the relatioship between the year the house was built and the price. It's not linear, but log-transforming the target variable can make it more so. 
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Transforming the target var to make the relationship more linear "}
+par(mfrow = c(1,2))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+plot(ames_train$Year_Built, ames_train$Sale_Price, pch = 20, col = alpha("black", 0.3))
+loess1 <- loess(ames_train$Sale_Price ~ ames_train$Year_Built, span = 0.3)
+predd <- predict(loess1, sort(unique(ames_train$Year_Built)))
+lines(x = sort(unique(ames_train$Year_Built)), predd, col = "red", lwd = 3)
+
+plot(ames_train$Year_Built, log(ames_train$Sale_Price),
+      pch = 20, col = alpha("black", 0.3), axes = FALSE)
+axis(1)
+axis(2, at = 10:13, labels = 10^(10:13), las = 2)
+
+abline(lm(log(ames_train$Sale_Price) ~ ames_train$Year_Built), col = "red", lwd = 3)
+
+```
 
