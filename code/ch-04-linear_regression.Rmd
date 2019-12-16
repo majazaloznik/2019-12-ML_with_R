@@ -1,0 +1,210 @@
+---
+title: Hands-on Machine Learning with R
+geometry: "left=3.5cm,right=3.5cm,top=2cm,bottom=2cm"
+output:
+  pdf_document: 
+  number_sections: true
+---
+\setcounter{section}{3}
+# Linear Regression
+
+```{r, global_options, include=FALSE}
+library(knitr)
+opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+*Linear  regression* is one of the simplest algs for supervised learning. But it's a good starting point and many more complex methods can be seen as extensions of it. 
+
+## Prerequisites
+
+Adding `vip` packages for interpretability of variable importance. Ames data set from before. 
+```{r, echo = FALSE}
+# Helper packages
+library(dplyr)    # for data manipulation
+library(ggplot2)  # for awesome graphics
+
+# Modeling packages
+library(rsample)  # to split the set
+library(caret)    # for cross-validation, etc.
+
+# Model interpretability packages
+library(vip)      # variable importance
+
+# viz packages
+library(scales) # for transparency
+library(rsm) # for contour plots
+
+# load ames housing data
+ames <- AmesHousing::make_ames()
+
+# Stratified sampling with the rsample package
+set.seed(123)
+split <- initial_split(ames, prop = 0.7, 
+                       strata = "Sale_Price")
+ames_train  <- training(split)
+ames_test   <- testing(split)
+```
+
+
+## Simple Linear Regresison
+
+SLR assumes the relationship between two continuous variables is at least approximately linear. 
+
+$$Y_i=\beta_0+\beta_1 X_i+\epsilon_i, \qquad for \quad i=1,2,...,n,$$
+Where $Y_i$ represents the response/target variable, $X_i$ is the $i^{th}$ feature value and teh betas are fixed but unknown constants (coefficients or parameters), representing the intercept and the slope.
+
+The $\epsilon_i$ term represents noise or random error. Here we assume the errors have a mean of zero and constant variance $\sigma^2$. This is denoted as $\stackrel{iid}{\sim}N(0, \sigma^2)$. Since the errors are centered on zero - the expected value $E(\epsilon_i) = 0$, linear regression is really a problem of estimating the conditional mean:
+
+$$E(Y_i|X_i) = \beta_0+\beta_1 X_i$$
+WHich we can shorten to just $E(Y)$. So the interpretation is in therms of *average responses*. E.g. $\beta_0$ is the average response value when $X=0$ - sometimes referred to as the *bias term* and $\beta_1$ is the increase in the average response if $X$ increases by one unit, aka the *rate of change*. 
+
+### Estimation
+
+We want the best fitting line, but what is the best fit? The most common way, called *Oridnary least squares* (OLS) is to minimise the *residual sum of squares*:
+
+$$RSS(\beta_0,\beta_1)=\sum^{n}_{i=1}[Y_i-(\beta_0+\beta_1X_i)]^2=\sum^{n}_{i=1}(Y_i-\beta_0-\beta_1X_i)^2.$$
+We denote the OLS stimates of the coefficients as $\hat \beta_0$ and $\hat \beta_1$. Once we have the estimated regression equation, we can predict values of $Y$ for $X_{new}$:
+
+$$\hat Y_{new} = \hat \beta_0 + \hat \beta_1 X_{new}$$
+Where $\hat Y_{new}$ is the estimated mean response at $X = X_{new}$. 
+
+So let's try modelling the ames data relationship between the sale price and the above ground living area. [This link)](https://drsimonj.svbtle.com/visualising-residuals)has good info on visualising residuals. 
+
+```{r}
+model1 <- lm(Sale_Price ~Gr_Liv_Area, data = ames_train)
+
+# let's have a look at the resisiduals and plot them 
+
+x <- ames_train
+x$predicted <- predict(model1)   # Save the predicted values
+x$residuals <- residuals(model1) 
+
+# this is what the data looks like
+x %>% select(Sale_Price, predicted, residuals) %>% head()
+
+# here are some plots
+par(mfrow = c(1,2))
+par(mar = c(4,4,2,0.1)+0.10)
+plot(x$Gr_Liv_Area, x$Sale_Price, col = alpha("black", 0.3), pch = 20,
+     main = "fitted regression line")
+abline(model1, col = "cadetblue4", lwd = 2)
+plot(x$Gr_Liv_Area, x$Sale_Price, col = alpha("black", 0.3), pch = 20,
+     main = "fitted regression line with residuals")
+abline(model1, col = "cadetblue4", lwd = 2)
+for (i in 1: nrow(x)){
+lines(c(x$Gr_Liv_Area[i], x$Gr_Liv_Area[i]),
+      c(x$Sale_Price[i], x$predicted[i]), 
+      lwd = 0.5)}
+```
+
+
+Use `coef()` and `summary()` to have a look a the coefficients. !!! I don't get the same data, even though i have the same seed in the split?
+
+```{r}
+coef(model1)
+summary(model1)
+# glimpse(model1)
+```
+
+So we estimate that an increase in area by one square foot increases the selling price by 114.88$. SO nice and intuitive. 
+
+One drawback  of using least squares is that we only have estimates of the coefficients, but not of the error variance $\sigma^2$. LS makes no assumptions about the random errors, so we cannot estimate $\sigma^2$. 
+
+An alternative is to use *maximum likelihood* estimation (ML) to estimate $\sigma^2$ -- which we need to characterise the variability of our model. For ML we have to assume a particular distribution of the errors, most commonly that they are normally distributed. Under these assumptions the estimate of the error variance is 
+
+$$\hat\sigma^2=\frac{1}{n-p} \sum^n_{i=1}(Y_i-\hat Y_i)^2 = \frac{1}{n-p} \sum^n_{i=1}r_i^2$$
+
+Where  $r_i$ is the residual of the $i^{th}$ observation. and $p$ is the number of parameters or coefficients in the model. \hat\sigma^2 is also known as the mean squared error (MSE) and it's square root is the RMSE, and you can get it out of an `lm` object using `sigma()`
+
+```{r}
+sigma(model1)
+sigma(model1)^2
+```
+!!! the sigma is slightly different from the RMSE reported in the summary, not sure why, same in book. 
+
+### Inference
+
+The coefficients are only point estimates, so that's not super useful without a measure of variability. This is usually measured with a *standard error* (SE), the square root of it's variance. If we assume the errors are distributed  $\stackrel{iid}{\sim}N(0, \sigma^2)$ ,then the SEs for the coefficients are simple and are expressied under the `Std. Error` heading in the summary for the model.
+
+From the SE we can also do a t-test to see if the coefficients are statistically significantly different from zero. (!!! stantistically significant from zero is probably wrong). 
+
+The t-statistic is simply the estimated coefficient divided by the SE, which measures the number of standard deviations each coefficient is away from zero. The p-values are reported in the same table. 
+
+Under these same assumptions we can also derive the confidence intervals for the $\beta$ coefficients. The formual is:
+
+$$\beta_j \pm t_{1-α/2,n-p} \hat {SE}(\hat \beta_j)$$
+
+In R you can construct them using `confitn()`
+
+```{r}
+confint(model1, level = 0.95)
+
+# or if you wanna spell it out:
+coef(model1)[2] - qt(0.975, model1$df.residual)*coef(summary(model1))[2,2]
+coef(model1)[2] + qt(0.975, model1$df.residual)*coef(summary(model1))[2,2]
+```
+
+So with 95% confidence we estimate that the mean sale price goes up between 109 and 119$ for each additional square foot. 
+
+Don't forget that these SEs and t-stats etc in the summary are based on the following assumptions:
+
+1. Independent observations
+2. The random errors have mean zero, and constant variance
+3. The random errors are normally distributed
+
+If your data deviate from these assumptions, there are some remedial actions you can take.. 
+
+## Multiple linear regression
+
+Extend the simple linear regression with more predictors to see e.g. how are and year built are (linearly) related to the sales price using *mulitple linear regression* (MLR). 
+
+$$Y_i=\beta_0+\beta_1 X_i+\beta_2 X_2 + \epsilon_i, \qquad for \quad i=1,2,...,n,$$
+
+Which you do in R by using `+` to separate predictors:
+
+
+
+```{r}
+(model2 <- lm(Sale_Price ~ Gr_Liv_Area + Year_Built, data = ames_train))
+
+# or use update
+(model2 <- update(model1, .~. + Year_Built))
+
+```
+
+So holding the year constant, each additional square foot of living area increses the mean selling price by 99\$. And holding the area constant, each additional year the home is newer by increases the mean price by 1093\$. Here are some contour plots:
+
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Contour plot of the fitted regression surface"}
+contour(model2,  Year_Built ~ Gr_Liv_Area ,
+        image = TRUE, img.col = rev(heat.colors(40)),
+        main = "contour plot for model 2")
+
+model3 <- lm(Sale_Price ~ Gr_Liv_Area + Year_Built + Gr_Liv_Area : Year_Built, data = ames_train)
+contour(model3,  Year_Built ~ Gr_Liv_Area ,
+        image = TRUE, img.col = rev(heat.colors(40)),
+        main = "contour plot for model 3")
+
+```
+
+The left one only has main effects and is therefore flat. Including interaction effects models curvature: the effect of one predictor now depend on the level of the other. So in our example this would mean including the product of both predictors:
+
+
+$$Y_i=\beta_0+\beta_1 X_i+\beta_2 X_2 + \beta_3 X_1 X_2 \epsilon_i, \qquad for \quad i=1,2,...,n,$$
+
+In R the formula is either `y ~ x1 + x2 ~ x1:x2` or `y ~ x1 * x2`. 
+
+Note the *hierarchy principle* which means that any lower order terms corresponding to the interaction term must also be included in the model. 
+
+You can include as many predictors as you like - as long as you have more observations than predictors! (So in wide tables you cannot include all of them!). These can also be interactions, or transoformations: e.g. $X_3 = X_1X2$ or $X_4 = \sqrt(X_3)$. Of course after two  dimensions visualisation becomes impractical, because we have a hyperplane of best fit.
+
+We can try all of the predictors in the data set and clean up the output using the `broom` package: (!!! again, the results are even more different than before). 
+
+```{r}
+model4 <- lm(Sale_Price ~ ., data = ames_train)
+
+broom::tidy(model4)
+```
+
+## Assessing model accuracy
+

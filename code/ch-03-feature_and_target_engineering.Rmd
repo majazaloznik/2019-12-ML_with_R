@@ -1,8 +1,11 @@
 ---
+title: Hands-on Machine Learning with R
+geometry: "left=3.5cm,right=3.5cm,top=2cm,bottom=2cm"
 output:
-  pdf_document: default
-  html_document: default
+  pdf_document: 
+    number_sections: true
 ---
+\setcounter{section}{2}
 # Feature and Target Engineering
 
 ```{r, global_options, include=FALSE}
@@ -59,7 +62,7 @@ You can add an `offset` in the `step_log()` function to add +1 to all values if 
 x.bc <- forecast::BoxCox(ames_train$Sale_Price, lambda = "auto")
 x.log <- log(ames_train$Sale_Price)
 par(mfrow = c(1,3))
-plot(density(ames_train$Sale_Price, col = "blue", main = "untransformed"))
+plot(density(ames_train$Sale_Price), col = "blue", main = "untransformed")
 plot(density(x.bc), main = "log transformed")
 plot(density(x.log), col = "red", main = "boxcox")
 
@@ -138,7 +141,7 @@ This is a *feature engineering* step, one that should be one of the first you un
 ```{r}
 # add a simple median imputation to the recipe
 ames_recipe %>%
-  step_medianimpute(Gr_Liv_Area)
+  step_medianimpute(Gr_Liv_Area) -> ames_recipe
 ```
 
 * an alternative is to used grouped statistics to capture the expected values for smaller groups. But this becomes unfeasible with large datasets. (why?)
@@ -157,11 +160,319 @@ Of course $k$ is also a tunable parameter, the default used by `step_knnimpute()
 
 ```{r}
 ames_recipe %>%
-  step_knnimpute(all_predictors(), neighbors = 6)
+  step_knnimpute(all_predictors(), neighbors = 6) 
 ```
 
-NB: in the recipes looks like you can only do one imputation recipe, it overrides the other one!
-
 #### Tree-based
+
+A lot of tree based models can be constructed in the presence of missing values. Inddividual trees have high variance, but aggregating them is m,ore robust. Random forest imputation is too costly though, but bagging seems like a good compromise. 
+
+Same as KNN imputation, the observation with the missing value is identified and treated as the target, and is predicted using bagged decision trees. 
+
+```{r}
+ames_recipe %>% 
+  step_bagimpute(`Gr Liv Area`)
+```
+
+## Feature Filtering
+
+Too many predictors, especially non-informative ones, can negatively affect model performace. Not for all models, e.g. tree based or lasso are fine. But even so, it will affect the time needed to run the models. 
+
+Easiest to eliminate are zero variance variables, or ones close to zero. They offer no discriminating power, no infomration. For some algs this doesn't matter, but it slows others down. 
+
+The ones with low variance obvs have some infomration, but not a lot and can cause problems with resampling, when they can become effectively zero variance in individual samples. 
+
+Good rules of thumbs for detecting variables with low vairance is :
+
+* the fraction of unique values is unde 10% 
+* the ration of the most prevalent to the second most prevalent value is large (> 20%) (what does the twenty percent mean? the inverse?) [Actually no, in the function below the ratio is 95/5. !!!]
+ 
+If both of these conditions are met, it might be good to remove the variables. You can use `caret::nearZeroVar()` to investigate which have both. 
+
+```{r}
+caret::nearZeroVar(ames_train, saveMetrics = TRUE) %>% 
+  tibble::rownames_to_column() %>% 
+  filter(nzv)
+```
+
+You can add `step_zv` or `step_nzv` to the recipe and remove the variables with zero or near zero variance. 
+
+```{r}
+ames_recipe %>% 
+  step_nzv(all_predictors())
+```
+
+## Numeric feature engineering
+
+Issues with skewness and different magnitudes of variable value ranges can cause a lot of issues with some models, although not really with tree-based ones. Normalizing and standardizing aleviates these problems.
+
+### Normalizing skewness
+
+This is important especially for parametric models (although it won't hurt for non-parametric ones). If doing many variables best use BoxCox (if the values are all positive) or Yeo-Johnson (if they are negative), as they identify the optimal transformation. 
+
+
+```{r}
+ames_recipe %>% 
+  step_nzv(all_predictors()) %>% 
+step_YeoJohnson(all_numeric())
+```
+
+### Standardization
+
+Do the scales of the inputs vary a lot? Models that use smooth (linear) functions of input features (some more obviously than others) will be sensitive to this. Not only GLMs, but also NNs, SVM, PCA.. Also ones that use distance e.g. k-nearest neighbours, k-means clustering..
+
+So for those cases it's a good idea to strandardize the variables, centering so they have zero mean and scaling so they have unit variance. 
+
+Some packages e.g. `glmnet` or `caret` have built in functionality for standardizing, but you really want to standardize the data in the recipe, so that both training and test standardization are based on the same mean and variance. *This helps minimise data leakage*. 
+
+```{r}
+ames_recipe %>% 
+  step_center(all_numeric()) %>% 
+  step_scale(all_numeric())
+```
+
+## Categorical feature engineering
+
+Most models require features be numeric, but some can handle categorical variables as well, especially tree-based ones, but even these can benefit from preprocessing them.
+
+### Lumping
+
+For example you can have categories with very few observations like here:
+
+```{r}
+count(ames_train, Neighborhood) %>% arrange(n)
+```
+
+This happens with numeric variables as well, e.g here, where most observations have a zero and only 8 % have a valid number. 
+
+```{r}
+count(ames_train, Screen_Porch)
+```
+In these cases you can benefit from collapsing these small categories (why, are you not loosing important data here?). But yeah, you should use this sparingly "as there is often a loss in model performace".
+
+You can use `step_other` to merge small categories into an "Other" category.
+
+```{r}
+# Lump levels for two features
+lumping <- recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_other(Neighborhood, threshold = 0.01, 
+             other = "other") %>%
+  step_other(Screen_Porch, threshold = 0.1, 
+             other = ">0")
+
+# Apply this blue print --> you will learn about this at 
+# the end of the chapter
+apply_2_training <- prep(lumping, training = ames_train) %>%
+  bake(ames_train)
+
+# New distribution of Neighborhood
+count(apply_2_training, Neighborhood) %>% arrange(n)
+
+# new distribution of Screen Porch
+count(apply_2_training, Screen_Porch)
+```
+
+### One-hot and dummy implementation
+
+If your models require numeric variables you need to transform the categorical ones into them. `h2o` and `caret` handle this internally, but `keras` and `glmnet` do not. 
+
+**One-hot** encoding is the most common type, where you transform a categorical var into several boolean variables with 1 for the category and 0 for !category. *Full rank* encoding transforms a variable into as many variables as there are categories. But this makes the new variables perfectly colinear, which causes problems with some models (OLS, NN). *Dummy encoding* drops one of the variables to remove the colinearity. 
+
+Use `step_dummy` to do either of these, where `one_hot = TRUE` makes it full rank, and `FALSE` means it's dummy. 
+
+```{r}
+recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_dummy(all_nominal(), one_hot = TRUE)
+```
+
+Careful, since a lot of categorical variables, with a lot of categories means that one-hot encoding can explode the number of features! In that case look at other alternatives such as those below. 
+
+
+### Label encoding
+
+This is pure numeric encoding of a categorical variable (!). If the var had levels, then they will be used, otherwise it will be alphabetical. `step_integer` does this, e.g. on this variable:
+
+```{r}
+count(ames_train, MS_SubClass)
+recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_integer(MS_SubClass) %>%
+  prep(ames_train) %>%
+  bake(ames_train) %>%
+  count(MS_SubClass)
+```
+
+But be careful, since most models will now treat this as an ordered numeric feature, which of course it isn't. This is fine for ordinal variables, e.g. these ones:
+
+```{r}
+ames_train %>% select(contains("Qual"))
+```
+
+An example of label encoding of one of these looks like this:
+
+```{r}
+count(ames_train, Overall_Qual)
+recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_integer(Overall_Qual) %>%
+  prep(ames_train) %>%
+  bake(ames_train) %>%
+  count(Overall_Qual)
+```
+
+### Alternatives
+
+**Target encoding** is where instead of a level number, the category gets the mean (if it's a regression problem) or proportion (for classification problems) of the target value for that group. !!! not sure why these numbers are not the same as in the book, i have the same seed for the `initial_split`. 
+
+```{r}
+ames_train %>% 
+  group_by(Neighborhood) %>% 
+  summarize(Neighborhood.target = mean(Sale_Price))
+```
+
+This represents a danger of *data leakage*, since you are using the target variable as a feature. 
+
+Alternatively, you can change the value of the feature to the proportion it represents for each category:
+
+```{r}
+ames_train %>% 
+  group_by(Neighborhood) %>% 
+  summarize(n = n()) %>% 
+  mutate(Neighborhood.prop = n/sum(n))
+```
+
+Other options include *effect* or *likelihood encoding*, *empirical Bayes methods*, *word and entity embeddings* etc.
+
+## Dimension Reduction
+
+This is covered later, but is a common way of pre-processing the data to filter out non-informative features. You could e.g. use PCA to select only the components that explain 95% of the  variance and remove the others. 
+
+```{r}
+recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric()) %>%
+  step_pca(all_numeric(), threshold = .95)
+```
+
+## Proper implementation
+
+OK, so the idea is to prepare a blueprint for the feature engineering steps, which mforces us into thinking sequentially and appropriately applying it during the resampling process. 
+
+### Sequential steps
+
+Think things through and do them in the right order. Here are some tips:
+
+* If using BoxCox, don't do anything that might make the values negative, like standardizing before. Or use Yeo-JOhnson instead and don't worry about it. 
+
+* One-hot or dummy encoding creates sparseness in the data, that makes some algs very efficient. **But** if you then standardize the data, this will make it dense (what?), which will affect the model performance. So if you want to standardize, first standardize numeric varz and only then dummy code the categorical ones. 
+
+* Obviosuly if you will do any sort of lumping, do that before one-hot encoding
+
+* although you can do dimension reduction on categorical features it is common to do it primarily on numerical ones (not sure hwo this fits into sequential steps?!!!)
+
+
+Here is a outline of steps you might want to consider:
+
+1. filter out zero or near-zero variance features.
+
+2. Perform imputation if required.
+
+3. Normalize to resolve numeric feature skewness.
+
+4. Standardize (center and scale) numeric features.
+
+5. Perform dimension reduction (e.g., PCA) on numeric features.
+
+6. One-hot or dummy encode categorical features.
+
+### Data leakage
+
+*Data leakage* is when information from outside the training set is used to train the model. This often happens during pre-processing. So you need to be careful to apply the preprocessing to each resample of the training set separately, so you are not leaking data from one resample to the other. Only this way will you have a good estimate of the generalizable prediction error. 
+
+So e.g. if you're standardizing features, you should apply the mean and variance of each sample to the training data, and to the test from that sample set. This imitates how the model will be used in practice, when it will only have the current data's means and variance. 
+
+### Putting the process together
+
+
+
+The `recipes` package allows us to develop the blueprint of our feature engineering, and do it sequentialy. There are three main steps in creating and applying feature engineering with recipes:
+
+1. `recipe`: where you define your feature engineering steps to create your blueprint.
+2. `prepare`: estimate feature engineering parameters based on training data.
+3. `bake`: apply the blueprint to new data.
+
+In the `recipe` we supply the formula and the desired feature engineering steps in sequence. E.g. using `ames`, we want the price to be the target and all other features predictors. Then 
+* remove all near zero varz that are nominal,
+* ordinally encode all features which are quality based (have Qual in the name, means they are ordinal)
+* center and scale all numeric variables
+* preform dimension reduction with pca.
+
+```{r}
+
+recipe(Sale_Price ~ ., data = ames_train) %>% 
+         step_nzv(all_nominal()) %>% 
+         step_integer(matches("Qual|Cond|QC|Qu")) %>% 
+         step_center(all_numeric(), -all_outcomes()) %>% 
+         step_scale(all_numeric(), -all_outcomes())  %>% 
+         step_pca(all_numeric(), -all_outcomes()) -> blueprint
+```
+
+
+Now we need to train this blueprint on some training data. This estimates the parameters. 
+
+```{r}
+prepared <- prep(blueprint, data = ames_train)
+```
+
+Now we can apply it to new data. The training data or the new test data.
+
+```{r}
+baked_train <- bake(prepared, new_data = ames_train)
+baked_test <- bake(prepared, new_data = ames_test)
+```
+
+So this developed bluepring, we want to prep and bake it on each resample. Luckily `caret` makes this easy. You just need to specify the bluepring and it will automatically prep and bake it during resampling.
+
+Set up the cross validation and grid search for the hyperparameter ($k$) as before, then call `train()`, but instead of the formula, just pass it the blueprint instead. 
+
+```{r, cache = TRUE}
+# a slightly dfferent blueprint
+blueprint <- recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_nzv(all_nominal()) %>%
+  step_integer(matches("Qual|Cond|QC|Qu")) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+
+# Specify resampling plan
+cv <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 5
+)
+
+# Construct grid of hyperparameter values
+hyper_grid <- expand.grid(k = seq(5, 20, by = 1))
+
+# Tune a knn model using grid search
+knn_fit2 <- train(
+  blueprint, 
+  data = ames_train, 
+  method = "knn", 
+  trControl = cv, 
+  tuneGrid = hyper_grid,
+  metric = "RMSE"
+)
+```
+
+Now have a look at the summary and pring the grid search for $k$, which seems to be 13. The RMSE is then 32,836, compared to 43,439 in the first model. 
+
+```{r}
+#print summary
+knn_fit2
+
+# plot
+plot(knn_fit2)
+```
+
+Because this is RMSE, the units are the same as the target, so basically adding these preprocessing methods has reduced our error by ove $10,000. 
 
 
