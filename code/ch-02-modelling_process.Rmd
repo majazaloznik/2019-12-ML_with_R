@@ -106,7 +106,7 @@ test_4  <- split_2[[2]]
 
 If the dataset is large enough it is usually sufficient to get a similar distribution of the target variable $Y$ in the training set and the test set. 
 
-```{r, fig.height = 3, echo = FALSE, fig.cap = "Distribution of target variable in training (black) and testing (red) sets"}
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Distribution of target variable in training (black) and testing (red) sets"}
 
 par(mfrow = c(1,4))
 par(mar = c(4,4,2,0.1)+0.10)
@@ -354,7 +354,7 @@ ames_test   <- testing(split)
 ```
 
 
-```{r, fig.height = 3, echo = FALSE, fig.cap = "Distribution of target variable in training (black) and testing (red) sets"}
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Distribution of target variable in training (black) and testing (red) sets"}
 par(mar = c(4,4,2,0.1)+0.10)
 plot(density(as.vector(ames_train$Sale_Price)), main = "base r", xlab = "Sale_Price")
 lines(density(as.vector(ames_test$Sale_Price)),  col = "red")
@@ -392,7 +392,7 @@ knn_fit <- train(
 
 So for each value of k (here from 2 to 10 to shorten the calculation), `train` performs  five repeats of a 10-fold cross validation (i.e. train on 9/10 of the training data and test on the remaining 1/10), calculates the RMSE for each and takes the average of the 50 values for that $k$. Then compares all the $k$s and figures out which is the best i.e. has the smallest RMSE. 
 
-```{r, fig.height = 3, echo = FALSE, fig.cap = "Plot of tuning parameters and metric for trained model: k and RMSE"}
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Plot of tuning parameters and metric for trained model: k and RMSE"}
 knn_fit
 
 ggplot(knn_fit) +

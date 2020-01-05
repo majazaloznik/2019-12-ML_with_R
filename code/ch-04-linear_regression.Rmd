@@ -2,15 +2,16 @@
 title: Hands-on Machine Learning with R
 geometry: "left=3.5cm,right=3.5cm,top=2cm,bottom=2cm"
 output:
-  pdf_document: 
-  number_sections: true
+  bookdown::pdf_document2: 
+    number_sections: true
+header-includes:
+ \usepackage{float}
 ---
 \setcounter{section}{3}
 # Linear Regression
 
 ```{r, global_options, include=FALSE}
-library(knitr)
-opts_chunk$set(warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(warning=FALSE, message=FALSE,fig.pos = 'H')
 ```
 
 *Linear  regression* is one of the simplest algs for supervised learning. But it's a good starting point and many more complex methods can be seen as extensions of it. 
@@ -70,7 +71,7 @@ Where $\hat Y_{new}$ is the estimated mean response at $X = X_{new}$.
 
 So let's try modelling the ames data relationship between the sale price and the above ground living area. [This link)](https://drsimonj.svbtle.com/visualising-residuals)has good info on visualising residuals. 
 
-```{r}
+```{r,  fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Regression residuals"}
 model1 <- lm(Sale_Price ~Gr_Liv_Area, data = ames_train)
 
 # let's have a look at the resisiduals and plot them 
@@ -175,15 +176,15 @@ Which you do in R by using `+` to separate predictors:
 So holding the year constant, each additional square foot of living area increses the mean selling price by 99\$. And holding the area constant, each additional year the home is newer by increases the mean price by 1093\$. Here are some contour plots:
 
 
-```{r, fig.height = 3, echo = FALSE, fig.cap = "Contour plot of the fitted regression surface"}
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Contour plot of the fitted regression surface"}
 par(mfrow = c(1,2))
 par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
 contour(model2,  Year_Built ~ Gr_Liv_Area ,
         image = TRUE, img.col = rev(heat.colors(40)),
         main = "contour plot for model 2", cex = 0.7)
 
-model3 <- lm(Sale_Price ~ Gr_Liv_Area + Year_Built + Gr_Liv_Area : Year_Built, data = ames_train)
-contour(model3,  Year_Built ~ Gr_Liv_Area ,
+model4 <- lm(Sale_Price ~ Gr_Liv_Area + Year_Built + Gr_Liv_Area : Year_Built, data = ames_train)
+contour(model4,  Year_Built ~ Gr_Liv_Area ,
         image = TRUE, img.col = rev(heat.colors(40)),
         main = "contour plot for model 3")
 
@@ -203,9 +204,9 @@ You can include as many predictors as you like - as long as you have more observ
 We can try all of the predictors in the data set and clean up the output using the `broom` package: (!!! again, the results are even more different than before). 
 
 ```{r}
-model4 <- lm(Sale_Price ~ ., data = ames_train)
+model3 <- lm(Sale_Price ~ ., data = ames_train)
 
-broom::tidy(model4)
+broom::tidy(model3)
 ```
 
 ## Assessing model accuracy
@@ -252,6 +253,9 @@ summary(resamples(list(
   model3 = cv_model3
 )))
 ```
+!!! there is an error here, for sure. I get the same MAE results for all three models, and same Rsuared also, but RMSE is the same only for model1 and model2, not model3 though, where mine are dramatically lower than in the book. 
+
+
 The function `caret::resamples()` allows you to compare the results of the resamplings. (!!! Again, my results are quite different from the book) The two predictor model has an average out of sample  RMSE 46,292, and the all predictor model it's 26,098. Judging only by RMSE, modle 3 is the best.
 
 ## Model concerns
@@ -260,10 +264,11 @@ There are several strong assumptions required by linear regression, that are oft
 
 1. **linearity of relationship**: if the relationship isn't linear, there are still transformations that could make it so. See e.g. the relatioship between the year the house was built and the price. It's not linear, but log-transforming the target variable can make it more so. 
 
-```{r, fig.height = 3, echo = FALSE, fig.cap = "Transforming the target var to make the relationship more linear "}
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Transforming the target var to make the relationship more linear "}
 par(mfrow = c(1,2))
 par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
-plot(ames_train$Year_Built, ames_train$Sale_Price, pch = 20, col = alpha("black", 0.3))
+plot(ames_train$Year_Built, ames_train$Sale_Price, pch = 20, col = alpha("black", 0.3),
+     bty = "n")
 loess1 <- loess(ames_train$Sale_Price ~ ames_train$Year_Built, span = 0.3)
 predd <- predict(loess1, sort(unique(ames_train$Year_Built)))
 lines(x = sort(unique(ames_train$Year_Built)), predd, col = "red", lwd = 3)
@@ -277,3 +282,260 @@ abline(lm(log(ames_train$Sale_Price) ~ ames_train$Year_Built), col = "red", lwd 
 
 ```
 
+2. **constant variance among residuals** aka homoscedascity, assumes that the variance  among the error terms ($\epsilon_1, \epsilon_2,..., \epsilon_n$) is constant. If this is not the case, the p-values and confidence intervals will be wrong. 
+
+NB: use the `broom::augment()` to add information about each observation to the dataset. Usually predictions and residuals, also standard errors. You pass a model, and either the original data, or `newdata`, that was not used to fit the model. 
+
+```{r, fig.height = 3, echo = FALSE, fig.cap = "Residuals for models 1 and 3", out.extra = ''}
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+df1 <- broom::augment(cv_model1$finalModel, data = ames_train)
+df3 <- broom::augment(cv_model3$finalModel, data = ames_train)
+par(mfrow = c(1,2))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+plot(df1$.fitted, df1$.resid, pch = 20, col = alpha("black", 0.3),
+     bty = "n", main = "model 1 residuals")
+plot(df3$.fitted, df3$.resid, pch = 20, col = alpha("black", 0.3),
+     bty = "n", main = "model 3 residuals")
+```
+ 
+You can see that adding all the predictors to the model made the residuals much more homoscedastic i.e. have constant variance. 
+
+3. **no auto-correlation** of the residuals. The residuals are supposed to be independent and uncorrelated. In Figure \@ref(fig:autocor) you can see that the residuals in model 1 have a pattern, which means that $\epsilon_k$ is not independent of $\epsilon_{k-1}$. This pattern is (probably) the result of the data being ordered by neighborhood, and of course homes in the same neighborhood are similar in a lot of ways, but our model does not account for that (it only includes living area). As soon as we add neighborhood into the model (as in model 3), the autocorrelation disappears. (but how would you notice this if they were in another order?)
+
+
+```{r autocor, fig.height = 3, echo = FALSE, fig.cap = "Auto-correlation of residuals for model 1 and much less so for model 3", out.extra = ''} 
+par(mfrow = c(1,2))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+plot(df1$.resid, pch = 20, col = alpha("black", 0.3),
+     bty = "n", main = "model 1 residuals")
+plot(df3$.resid, pch = 20, col = alpha("black", 0.3),
+     bty = "n", main = "model 3 residuals")
+```
+
+
+4. **more observations than predictors** - if this is not the case and $p>n$ then you cannot compute an OLS estimate. You can then remove features one at a time, until $p<n$, using some pre-processing tools to guide you. But regularized regression is not limited by this, so use that instead. 
+
+5. **nu or little multi-colinearity** - *colinearity* refers to the situation where two or more predictors are closely correlated. For example the two garage variables have a correlation of 0.89 and are both correlated with Sale_Price as well. In the final model, one of them has a significant coefficient, the other not:
+
+```{r}
+# correlation between the two variables is high
+cor(ames_train$Garage_Cars, ames_train$Garage_Area)
+
+# one is significant, one not. 
+summary(cv_model3) %>%
+  broom::tidy() %>% 
+  filter(term %in% c("Garage_Area", "Garage_Cars"))
+```
+
+But if we remove `Garage_Area`, then Garage Cars suddenly becomes terrifically significant. (!!! again, my results are different than in the book. In fact just the inverse, I have Garage_Area significant in model3, not Garage_cars. )
+
+
+```{r}
+set.seed(123)
+mod_wo_Garage_Area <- train(
+  Sale_Price ~ ., 
+  data = select(ames_train, -Garage_Area), 
+  method = "lm",
+  trControl = trainControl(method = "cv", number = 10))
+
+summary(mod_wo_Garage_Area ) %>%
+  broom::tidy() %>% 
+  filter(term %in% c("Garage_Cars"))  
+```
+
+"This reflects the instability in the linear regression model caused by between-predictor relationships; this instability also gets propagated directly to the model predictions". And since almost half of the predictors have moderate or high correlations, this is likely to be limiting the predictive accuracy of the model. 
+
+What do you do? One option is to remove predictors one by one, until the pair-wise correlations fall under a specific level. But this is tedious. 
+
+But also, multi-collinearity can arrise if one predictor is linearly related to several other features, and that is more difficutl to detect (you can use a statistic called *variance inflation factor* to figure it out), and even more difficult to remove. 
+
+So there are two main extensions of OLS, to help deal with multi-colinearity. One is **Principal component regressison**, the other **Partial least squares**, in both cases we are using dimensin reduction as pre-processing before running the regression. Alternatively *regularized regression* is introduced a few chapters dow. 
+
+## Principal component regression
+
+PCR is the two step process of dimension reduction, pre-processing the features into a smaller number of un-correlated principal components, and then running linear regression on them. 
+
+In `caret` we simply specify `method = pcr` in the `train()` call. This code also removes zero variance variables, and centers and scales the variables via the caret package instead of via recipes like we did last time. `tuneLength` controls the number of levels the parameter grid search should have. In this case we are looking at PCA, so the tuning parameter we are optimising is the number of principal components included in the model, in this case fom 1 to 20. 
+
+```{r}
+set.seed(123)
+cv_model_pcr <- train(
+  Sale_Price ~ ., 
+  data = ames_train,
+  method = "pcr",
+  trControl = trainControl(method = "cv", number = 10),
+   preProcess = c("zv", "center", "scale"),
+  tuneLength = 20)
+
+# model with lowest RMSE
+cv_model_pcr$bestTune
+
+# plot cross-validated RMSE
+plot(cv_model_pcr$results$ncomp, cv_model_pcr$results$RMSE, type = "b", )
+
+```
+
+!!! the note mistakenly says we are removing the nzv featrures, but it's only zv. 
+
+```{r}
+## second attempt using recipes, should be the same thing. 
+library(recipes)
+blueprint <- recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_zv(all_nominal()) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_pca(all_numeric(), -all_outcomes(), num_comp = 20)
+
+# Specify resampling plan
+cv <- trainControl(
+  method = "cv", 
+  number = 10)
+
+# preprocess and pick only PC variables:
+blueprint %>% 
+  prep(ames_train) %>%
+  bake(ames_train) %>% 
+  select(Sale_Price, starts_with("PC"))-> ames_pca
+
+# train model using preprocessed data and crossvalidation. 
+set.seed(123)
+cv_model_pcr2 <- train(
+  Sale_Price ~ .,
+  data = ames_pca, 
+  method = "lm", 
+  trControl = cv, 
+  metric = "RMSE")
+
+# what is the average RMSE
+cv_model_pcr2$results
+
+cv_model_pcr$results %>% 
+  filter(ncomp == 20)
+```
+
+!!! also, I'm not clear on how to do this same thing with the recipes/blueprings like suggested in the text. If I just copy the structure from chapter 3, the problem is two-fold, one that `step_pca` retains the original features after the pca. But you don't want to use them in the lm, you only want the PC. The second is that when running a `lm` in `train()`, I don't know how to tune on the number of variables used - i.e. the number of PCs included in the model. But I did attempt to get a second version of the model using this approach, only for 20 PCs, but the RMSE or other stats don't look similar enough really.. don't know why. 
+
+!!!Anyway, for them PCR is better than regular regression, but not for me, not at all, my PRC is absolutely shit compared to the regular one, which had a mean RMSE of 26,098\$
+
+## Partial Least Squares 
+
+PLS is a type of supervised dimension reduction procedure. In PCA (or PCR rather), the components are constructed to maximally summarise the variability of the features, but ignoring the correlation with the target variable. In PLS however, the components are constructed while at the same time trying to maximise the correlation between the PCs and the outcome. 
+
+
+```{r}
+## try alternative to get pls as well, to get the PCs
+library(recipes)
+blueprint <- recipe(Sale_Price ~ ., data = ames_train) %>%
+  step_zv(all_nominal()) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_pls(all_numeric(), outcome = "Sale_Price")
+
+# Specify resampling plan
+cv <- trainControl(
+  method = "cv", 
+  number = 10)
+
+# preprocess and pick only PC variables:
+blueprint %>% 
+  prep(ames_train) %>%
+  bake(ames_train) %>% 
+  select(Sale_Price, starts_with("PL"))-> ames_pls
+```
+
+```{r exemplar, fig.height = 3, echo = FALSE, fig.cap = "correlation between main PCs and outcome for PCR (top) and PLS components and outcome (bottom) ", out.extra = ''} 
+par(mfrow = c(2,2))
+par(mar = c(3,3,.5, .5))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+plot(ames_pca$Sale_Price~ ames_pca$PC01, col = alpha("black", 0.3), pch = 20,
+     main = "PC01 and outcome")
+abline(lm(ames_pca$Sale_Price~ ames_pca$PC01), col = "cadetblue4", lwd = 3)
+plot(ames_pca$Sale_Price~ ames_pca$PC02, col = alpha("black", 0.3), pch = 20,
+     main = "PC02 and outcome")
+abline(lm(ames_pca$Sale_Price~ ames_pca$PC02), col = "cadetblue4", lwd = 3)
+
+plot(ames_pls$Sale_Price~ ames_pls$PLS1, col = alpha("black", 0.3), pch = 20,
+     main = "PL01 and outcome")
+abline(lm(ames_pls$Sale_Price~ ames_pls$PLS1), col = "cadetblue4", lwd = 3)
+plot(ames_pls$Sale_Price~ ames_pls$PLS2, col = alpha("black", 0.3), pch = 20,
+     main = "PL02 and outcome")
+abline(lm(ames_pls$Sale_Price~ ames_pls$PLS2), col = "cadetblue4", lwd = 3)
+```
+
+!!! The "exemplar data" illustration seems rather disingenuous.. it's not reproducible, because you're using an unspecified dataset. but at the same time if i attempt to reproduce it using the ames dta at hand, i get a really nice strong correlation, at least with PC01. So my reproduction in Figure \@ref(fig:exemplar) doesn't seem to show any difference in how correlated the components are between the two approaches.. 
+
+!!! Also, the x-axis isn't the eignenvalue - each component has a single eigenvalue, this is the actual PC values, no?
+
+OK, then there is an overly complicated explanation of how it works, by refering to an equation in chapter 17... But essentially the components are calculated by giving the highest weight to the variables most related to the response. 
+
+
+```{r pls, fig.height = 4, echo = FALSE, fig.cap = "RMSE by number of components in PLS model", out.extra = ''} 
+par(mar = c(3,3,2, 0.5))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+set.seed(123)
+cv_model_pls <- train(
+  Sale_Price ~ ., 
+  data = ames_train,
+  method = "pls",
+  trControl = trainControl(method = "cv", number = 10),
+   preProcess = c("zv", "center", "scale"),
+  tuneLength = 20)
+
+# model with lowest RMSE
+cv_model_pls$bestTune
+
+
+# plot cross-validated RMSE
+plot(cv_model_pls$results$ncomp, cv_model_pls$results$RMSE, type = "b", )
+```
+
+!!! the Figure \@ref(fig:pls) results are also quite different for me, I get a pretty monotonic chart, not the dip that you guys get. same seed. 
+
+
+## Feature Interpretation
+
+Once you've found a model maximising accuracy, the next goal is *interpretation of the model structure*. Linear regression lends itself quite nicely to this: it's untuitive that the relationship between the variables is *monotonic* and *linear*. 
+
+How do you figure out which variables are the most important? Usually just compare the $t-statistics$, although as soon as you have interactions or transformation of the variables, these become more difficult to interpret. 
+
+The `vip` package is apparently helpful in visualising the most important variables, here they are for the PLS model. !!! slightly different to the ones reported in the book thoug.  
+
+```{r, fig.height = 4, echo = FALSE, fig.cap = "Top vars in PLS model", out.extra = ''} 
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+imp <- vip::vip(cv_model_pls, num_features = 20, method = "model", main = "PLS")
+```
+
+### Partial dependence plots
+
+PDPs plot the change in the averge predicted value of the target variable $\hat Y$ over the marginal distribution of individual features. This gets more interesting in other models, not so much with the linear ones, but whatevs.
+
+
+```{r, fig.height = 4, echo = FALSE, fig.cap = "PDPs for some main and less main vars in PLS", out.extra = ''} 
+par(mfrow = c(2,3))
+par(mar = c(5,3,.5, .5))
+par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
+
+pdp::partial(cv_model_pls, pull(imp$data[1,1]), grid.resolution = 20) -> x
+plot(x, type = "l",  ylim = c(150000, 300000))
+pdp::partial(cv_model_pls, pull(imp$data[2,1]), grid.resolution = 20) -> x
+plot(x, type = "l",  ylim = c(150000, 300000))
+pdp::partial(cv_model_pls, pull(imp$data[3,1]), grid.resolution = 20) -> x
+plot(x, type = "l",  ylim = c(150000, 300000))
+pdp::partial(cv_model_pls, pull(imp$data[4,1]), grid.resolution = 20) -> x
+plot(x, type = "l",  ylim = c(150000, 300000))
+pdp::partial(cv_model_pls, pull(imp$data[5,1]), grid.resolution = 20) -> x
+plot(x, type = "l",  ylim = c(150000, 300000))
+pdp::partial(cv_model_pls, pull(imp$data[6,1]), grid.resolution = 20) -> x
+plot(x, type = "l",  ylim = c(150000, 300000))
+
+```
+
+!!! The text implies that less important variables have a smaller slope, but this doens't seem to be the case. At least with the sixth one. 
+
+!!! Hm, so the top features are all continuous, so you can plot them, but the categorical ones you cannot do a PDP. The foact that the top 4 are cont. is just a coincidence, but it means you don't explain what to do with the other features. 
+
+
+## Final thoughts
+
+
+Linear regression is a basic supervised learning alg, but has some assumptions that can be problematic. These can be addressed with extensions and dimension reduction steps, but other algs are better in the end..
