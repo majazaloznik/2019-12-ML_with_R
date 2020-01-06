@@ -1,13 +1,13 @@
 ---
-  title: Hands-on Machine Learning with R
+title: Hands-on Machine Learning with R
 geometry: "left=3.5cm,right=3.5cm,top=2cm,bottom=2cm"
 output:
   bookdown::pdf_document2: 
-  number_sections: true
+    number_sections: true
 header-includes:
   \usepackage{float}
 ---
-  \setcounter{section}{4}
+\setcounter{section}{4}
 # Logistic Regression
 
 ```{r, global_options, include=FALSE}
@@ -50,21 +50,21 @@ We start with the attrition dataset, which has a Yes/No response, and we split i
 ## Why Logistic Regression?
 
 Predicting the probability of a dichotomous event - yes/no - with linear regression would lead to unreasonable predicitons: negative probabilities, or probabilities greater than one. The sigmoidal shape of the logistic curve prevents this. There are many functions that restrict outputs to [0,1] for all inputs, and the logistic function is just one of them:
-  
-  $$ p(X)=\frac{e^{a}}{1+e^{a}}$$
-  
-  Where $a$ cxan be any linear transformation of predictors such as:
-  
-  $$ p(X)=\frac{e^{\beta_0+\beta_1X_1}}{1+e^{\beta_0+\beta_1X}}$$
-  
-  here $p(X)$ is the probability that the outcome is positive, and the $\beta$ parameters are the coefficients. In the limits the equation tends to zero and one, which is what we want. Rearranging the equation we start out by taking the odds of X = 1, which is the probability of X = 1 divided by the probability of X = 0
+
+$$ p(X)=\frac{e^{a}}{1+e^{a}}$$
+
+Where $a$ cxan be any linear transformation of predictors such as:
+
+$$ p(X)=\frac{e^{\beta_0+\beta_1X_1}}{1+e^{\beta_0+\beta_1X}}$$
+
+here $p(X)$ is the probability that the outcome is positive, and the $\beta$ parameters are the coefficients. In the limits the equation tends to zero and one, which is what we want. Rearranging the equation we start out by taking the odds of X = 1, which is the probability of X = 1 divided by the probability of X = 0
 
 $$\frac{P(X)}{1 - P(X)} =\frac{\frac{e^{a}}{1+e^{a}}}{1 - \frac{e^{a}}{1+e^{a}}}$$
-  
-  If you multiply the right side with $\frac{1+e^a}{1+e^a}$, it simplifies to $e^a$. Then just take the natural log of the whole thing:
-  
-  $$\frac{P(X)}{1 - P(X)} = a = \beta_0+\beta_1X$$
-  So yeah, applying the *logit transformation* to $P(X)$ gives us a linear transformation similar to the one from the simple regression model. This also allows us to have an intuitive interpretation of the model: the odds of attrition (left hand side) increase multiplicatively with $e^\beta_1$ for every unit incresase in $X$. 
+
+If you multiply the right side with $\frac{1+e^a}{1+e^a}$, it simplifies to $e^a$. Then just take the natural log of the whole thing:
+
+$$\frac{P(X)}{1 - P(X)} = a = \beta_0+\beta_1X$$
+So yeah, applying the *logit transformation* to $P(X)$ gives us a linear transformation similar to the one from the simple regression model. This also allows us to have an intuitive interpretation of the model: the odds of attrition (left hand side) increase multiplicatively with $e^\beta_1$ for every unit incresase in $X$. 
 
 ## Simple Logistic Regression
 
@@ -76,8 +76,8 @@ model2 <- glm(Attrition ~ OverTime, family = "binomial", data = churn_train)
 ```
 
 The `glm()` function uses *maximum likelihood* estimation to find the best estimates for $\hat\beta_0$   and $\hat\beta_1$ 
-  
-  ```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Predicted probabilities of attrition"}
+
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Predicted probabilities of attrition"}
 .pardefault <- par()
 par(mfrow = c(1,2))
 par(mar = c(4,3,.5, .5))
@@ -159,6 +159,7 @@ p2 <- churn_train %>%
   theme(legend.position = "right")
  
 gridExtra::grid.arrange(p1, p2, nrow = 1) 
+par(.pardefault)
 ```
 
 ## Assessing model accuracy
@@ -201,7 +202,7 @@ summary(
     list(
       model1 = cv_model1, 
       model2 = cv_model2, 
-      model3 = cv_model3,    )
+      model3 = cv_model3   )
   )
 )$statistics$Accuracy
 ```
@@ -231,11 +232,12 @@ So the first two models aren't predicting any attrition at all. Neither of them.
 
 !!! We can see from the confusion matrix the "no informaiton rate", which is the proportion of attrition to no-attrition in the data is 83.33%, which is of course the same as the average accuracy in the first two models. this is not mentioned in the book, but would be useful. 
 
-So let's plot the ROC curve (receiver operating characteristic) to compare models 1 and 3. 
+So let's plot the ROC curve (receiver operating characteristic) to compare models 1 and 3. Using `prediction` and `performance` functions from the `ROCR` package to calculate the curves. we can see how model 3 dramatically shifts the curve to the top left - which is what we want. !!! A shame prediction and performance aren't explained in a bit more detail. 
+
+
 ```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "ROC curves for models 1 and 3"}
 
 library(ROCR)
-
 
 # Compute predicted probabilities
 m1_prob <- predict(cv_model1, churn_train, type = "prob")$Yes
@@ -248,22 +250,86 @@ perf2 <- prediction(m3_prob, churn_train$Attrition) %>%
   performance(measure = "tpr", x.measure = "fpr")
 
 # Plot ROC curves for cv_model1 and cv_model3
+par(mfrow = c(1,1))
+par(mar = c( 4,3, 1,1))
 plot(perf1, col = "black", lty = 2)
 plot(perf2, add = TRUE, col = "blue")
 legend(0.8, 0.2, legend = c("cv_model1", "cv_model3"),
        col = c("black", "blue"), lty = 2:1, cex = 0.6)
+par(.pardefault)
+
+```
+
+### Partial Least Squares
+
+Like in the OLS regression case we can see if reducning the dimensions improves the model by using PLS. Again on a 10-fold cross validation. 
+
+```{r, cache=TRUE}
+# Perform 10-fold CV on a PLS model tuning the number of PCs to 
+# use as predictors
+set.seed(123)
+cv_model_pls <- train(
+  Attrition ~ ., 
+  data = churn_train, 
+  method = "pls",
+  family = "binomial",
+  trControl = trainControl(method = "cv", number = 10),
+  preProcess = c("zv", "center", "scale"),
+  tuneLength = 16
+)
+cv_model_pls$bestTune
+```
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "PLS tuning"}
+plot(cv_model_pls)
+```
+!!! with this seed I get the error `Warning message:
+In fitFunc(X, Y, ncomp, Y.add = Y.add, center = center, ...) :
+  No convergence in 100 iterations`. not sure what this means, but should be mentioned in the book, no?
+
+## Model concerns
+
+Residual analysis is not so straightforward with outcomes of 0 and 1. But some attempts have been made. But they are not really explained in the book. Except for some pointers to look at pseudo-residuals and surrogate residuals, both of which can be implemented in R. 
 
 
+## Feature interpretation
+
+Similarly to the linear models, once we have our preferred model we can try to extract the most important features to see which ones have the most impact. 
+
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Main features in model 3"}
+vip(cv_model3, num_features = 20)
+```
+
+We can also draw partial dependence plots for the top four predictors. The code is a bit complicated here using the prediciton function `pred.fun` argument, but I think this is really just because of how the variable is coded. "We just need to write a function that computes the predicted class probability of interest averaged across all observations".  Otherwise the argument `prob = TRUE` also lets you easily make PDPs for classification problems like this. More explanationcan be found [here](https://bgreenwell.github.io/pdp/articles/pdp-extending.html#fn1). 
 
 
+```{r, fig.height = 3, echo = FALSE, out.extra = '', fig.cap = "Main features in model 3"}
+
+pred.fun <- function(object, newdata) {
+  Yes <- mean(predict(object, newdata, type = "prob")$Yes)
+  as.data.frame(Yes)
+}
+
+p1 <- pdp::partial(cv_model3, pred.var = "OverTime", pred.fun = pred.fun) %>% 
+  autoplot(rug = TRUE) + ylim(c(0, 1))
+
+p2 <- pdp::partial(cv_model3, pred.var = "JobSatisfaction", pred.fun = pred.fun) %>% 
+  autoplot() + ylim(c(0, 1))
+
+p3 <- pdp::partial(cv_model3, pred.var = "NumCompaniesWorked", pred.fun = pred.fun, gr = 10) %>% 
+  autoplot() + scale_x_continuous(breaks = 0:9) + ylim(c(0, 1))
+  
+
+p4 <- pdp::partial(cv_model3, pred.var = "EnvironmentSatisfaction", pred.fun = pred.fun) %>% 
+  autoplot() + ylim(c(0, 1))
+
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+par(.pardefault)
+```
 
 
+## Final thoughts
 
-
-
-
-
-
+So log reg has all the similar issues than linear does - limited to a linear relationship between the coefficients, the problem of multi-colinearity. And the problem that it only applies to dichotomous outcomes. Although multinomial classification is a solution to that, it comes with further assumptions and decreased accuracy of estimates. There are other models that work better for binary and multinomial classification, we'll get to them now. 
 
 
 
