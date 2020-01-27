@@ -1,0 +1,100 @@
+---
+title: Hands-on Machine Learning with R
+geometry: "left=3.5cm,right=3.5cm,top=2cm,bottom=2cm"
+output:
+  bookdown::pdf_document2: 
+    number_sections: true
+header-includes:
+  \usepackage{float}
+---
+  \setcounter{section}{5}
+  
+# Regularized Regression
+
+The problem with linear models and the sort of datasets we are dealing with today is that the assumptions quickly break down and the models overfit the data and our *out of sample error* increases. So the models appear to work well on the training data, but when you apply it out of sample i.e. on unseen data, it performs much worse. 
+
+"Regularization methods provide a means to constrain or regularize the estimated coefficients, which can reduce the variance and decrease out of sample error."
+
+```{r, global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE,fig.pos = 'H')
+```
+
+
+## Prerequisites
+```{r, echo = FALSE}
+# Helper packages
+library(recipes)     
+
+# Modeling packages
+library(glmnet) # for implementing regularized regression
+library(caret)     # for automaitng modelling
+
+# Model interpretability packages
+library(vip)       # variable importance
+
+library(broom)
+# prepare data
+df <- attrition %>% mutate_if(is.ordered, factor, ordered = FALSE)
+```
+
+```{r}
+# load ames housing data
+ames <- AmesHousing::make_ames()
+
+# Stratified sampling with the rsample package
+set.seed(123)
+split <- initial_split(ames, prop = 0.7, 
+                       strata = "Sale_Price")
+ames_train  <- training(split)
+ames_test   <- testing(split)
+# Create training (70%) and test (30%) sets for the 
+# rsample::attrition data.
+set.seed(123)  # for reproducibility
+churn_split <- initial_split(df, prop = .7, strata = "Attrition")
+churn_train <- training(churn_split)
+churn_test  <- testing(churn_split)
+```
+
+## Why Regularize
+
+So for example in OLS your objective is to minimise the sum of squared errors between the observed and predicted values. !!! you're not minimising the gray lines as the text says, but their squares!
+
+So we're minimizing the following function:
+
+$$SSE=\sum_n^{i=1}(y_i−y_i)^2$$
+This objective function is fine if our data has a linear relatioship, if there are more observations than there are features (n>>p) and there is no multi-colinearity. (Additionally if you want to do classical tests of inference you also have to assume normality and homoscedasticity of errors).
+
+!!! misleading wording "As p increases, we’re more likely to violate some of the OLS assumptions and alternative approaches should be considered." does not make clear that if $p > n$ there is no solution to OLS anymore. Ah, ok, you explain it later on. 
+
+Anyway, so the *betting on sparisty* principle is invoked here. This says that in high dimensional situations it is reasonalble to assume that most effects are not significant. You can justify this because it is often true, and because if it wasn't, you wouldn't know what to do anyway. So basically you want a type of **feature selection**, to reduce $p$, the number of features. 
+
+One type of feature selection is *hard thresholding*, this is the kind of elimination that is used in forward selection and backward elimination. But here a feature either is or isn't in the model. An alternative more modern approach is *soft thresholding* where effects are slowly pushed out, and sometimes reduced to zero also, but not necessarily. And apparently this can be more accurate as well as easier to interpret. 
+
+Another term for regularized regression is also *penalized* models or *shrinkage* methods as a way to constrain the total size of the coefficient estimates. Which apparently helps reduce the magnitude and the fuluctuations of our coefficient estimates and will reduce the vairance of the model - at the expense of no longer being unbiased. (!?). SO now we are also minimizing a penalty term:
+
+$$min(SSE + P)$$
+
+The way this $P$ works is that the only way the coefficients can increase is if there is a concomitant reduction in SSE. SO thi is for OLS where SSE is the loss function. But this generalizes to other GLM models as well, that just have different loss functions. The three common penalty parameters are:
+
+1. Ridge,
+2. Lasso,
+3. Elastic net or ENET, which is a combination of Ridge and Lasso. 
+
+### Ridge regression
+
+The ridge parameter is added to the loss function:
+
+ $$min(SSE + \lambda \sum^p_{j=1} \beta^2_j)$$
+
+The penalty is also known as $$L^2$$, or the *Euclidean norm*. This is the sum of all the squared coefficients multiplied by the controlling or tuning parameter $\lambda$. If  $\lambda$ is zero, then this is OLS, since the penalty has no effect. But as  $\lambda -> \infty$, the coefficients get forced towards zero - but not all the way. 
+
+
+
+
+
+
+
+
+
+
+
