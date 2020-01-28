@@ -483,7 +483,7 @@ cv_model_pls <- train(
 
 # model with lowest RMSE
 cv_model_pls$bestTune
-
+cv_model_pls$results$RMSE[cv_model_pls$bestTune[[1]]]
 
 # plot cross-validated RMSE
 plot(cv_model_pls$results$ncomp, cv_model_pls$results$RMSE, type = "b", )
@@ -503,6 +503,7 @@ The `vip` package is apparently helpful in visualising the most important variab
 ```{r, fig.height = 4, echo = FALSE, fig.cap = "Top vars in PLS model", out.extra = ''} 
 par(cex.axis=0.7, cex.lab=0.7, cex.main = 1)
 imp <- vip::vip(cv_model_pls, num_features = 20, method = "model", main = "PLS")
+imp
 ```
 
 ### Partial dependence plots
